@@ -16,5 +16,5 @@
 
 ## db/finance.db.zst
 사용 방법
-> zst -d db/finance.db.zst
-1. Z Standard 로 압축 되어 있음, zst -d  옵션으로 압축해제 후 사용
+> zstd -d db/finance.db.zst
+1. Z Standard 로 압축 되어 있음, zstd -d  옵션으로 압축해제 후 사용
