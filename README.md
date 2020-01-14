@@ -18,3 +18,33 @@
 사용 방법
 > zstd -d db/finance.db.zst
 1. Z Standard 로 압축 되어 있음, zstd -d  옵션으로 압축해제 후 사용
+### Describe (schema)
+db/finance.db 파일 테이블.
+KRX: 한국주식 종목 코드
+```sql
+CREATE TABLE IF NOT EXISTS "KRX" (
+"index" INTEGER,
+  "Symbol" TEXT,
+  "Name" TEXT,
+  "Sector" TEXT,
+  "Industry" TEXT
+);
+```
+개별종목
+```sql
+CREATE TABLE IF NOT EXISTS "종목코드" (
+"Date" TIMESTAMP,
+  "Open" INTEGER,
+  "High" INTEGER,
+  "Low" INTEGER,
+  "Close" INTEGER,
+  "Volume" INTEGER,
+  "Change" REAL
+);
+```
+
+
+## db_sort.py
+db/finance.db 파일에 중복된 거래 데이터가 생겼을 때, 날짜기준으로 중복 제거하는 스크립트
+> python ./db_sort.py
+그냥 실행하면 됨.
