@@ -14,12 +14,14 @@
 1. NNNNNN은 종목 코드, db/finance.db 에서 거래 데이터 받아와 매달 첫 거래일 종가에 매수 했을 때의 데이터를 출력함.
 1. 표출출력하게 되어 있음.
 1. 2020 년 까지 실행 시 에러가 남. -> 수정 완료, 날짜 중복 시 배열이 넘어와서 에러 발생한 것.
- 1. 최신 거래 데이터 지속적으로 갱신하다 보면 중복발생할 수 있음. db_sort.py 사용
+### stock.ipynb
+stock_value.py 의 jupyter notebook 버전. sys.argv[1] 에 종목코드를 넣으면 인라인에 표과 그래프 출력함
 
 ## db/finance.db.zst
 사용 방법
 > zstd -d db/finance.db.zst
 1. Z Standard 로 압축 되어 있음, zstd -d  옵션으로 압축해제 후 사용
+1. 최신 거래 데이터 지속적으로 갱신하다 보면 중복발생할 수 있음. db_sort.py 사용
 ### Describe (schema)
 db/finance.db 파일 테이블.
 #### KRX: 한국주식 종목 코드
