@@ -8,6 +8,7 @@ import matplotlib.ticker as mtick
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import matplotlib.dates as dates
+from multiprocessing import Pool
 
 PNG_FOLDER = "png/"
 if not os.path.isdir(PNG_FOLDER):
@@ -139,12 +140,19 @@ def calcValuation(SYM):
     FIG = PLOT.get_figure()
     FIG.savefig(CSV_FIG)
 
-for SYM in sys.argv[1:]:
+def calcRun(SYM):
     if (checkTableExists(CONN, SYM)):
         calcValuation(SYM)
     else:
         print("Table is not exist, Create Table " + SYM)
         # create_table(CONN, SYM)
+
+SYMBOL_ARRAY = pd.read_sql('select Symbol from KRX', con = CONN)
+LIST_SYMBOL = SYMBOL_ARRAY.Symbol.tolist()
+
+if __name__ == '__main__':
+    with Pool(7) as p:
+        print(p.map(calcRun, LIST_SYMBOL))
 
 CONN.close()
 BT.close()
