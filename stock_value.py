@@ -14,6 +14,10 @@ PNG_FOLDER = "png/"
 if not os.path.isdir(PNG_FOLDER):
     os.mkdir(PNG_FOLDER)
 
+CSV_FOLDER = "csv/"
+if not os.path.isdir(CSV_FOLDER):
+    os.mkdir(CSV_FOLDER)
+
 # 폰트 설정
 mpl.rc('font', family='NanumGothic')
 # 유니코드에서  음수 부호설정
@@ -29,6 +33,7 @@ def F_FEE(Get_Date):
     else:
         return 0.18
 
+# sqlite 연결 생성
 def create_connection(db_file):
     """ create a database connection to the SQLite database
         specified by db_file
@@ -44,6 +49,7 @@ def create_connection(db_file):
 
     return conn
 
+# 테이블 없는 경우 생성
 def create_table(conn, create_table_sql):
     """ create a table from the create_table_sql statement
     :param conn: Connection object
@@ -119,13 +125,17 @@ def calcValuation(SYM):
                     date = dt.datetime(year, month, day)
                     RESULT_DF = RESULT_DF.append({
                         'Date':date,
-                        'PRINCIPAL':PRINCIPAL,
+                        'PRINCIPAL':(PRINCIPAL/1000),
                         'RATE':(RATE*100),
-                        'VALUATION':VALUATION},
+                        'VALUATION':(VALUATION/1000)},
                         ignore_index=True)
                     break
         PRINCIPAL = PRINCIPAL + (PRINCIPAL * 0.017 * 0.846)
-    TITLE = pd.read_sql('select Symbol, Name from KRX where Symbol like \"' + SYM + '\"', con = CONN, index_col="Symbol")
+    TITLE = pd.read_sql('select Symbol, Name from KRX where Symbol like \"' + SYM + '\" union select Symbol, Name from ETF_KR where Symbol like \"' + SYM + '\"', con = CONN, index_col="Symbol")
+    CSV_FN = CSV_FOLDER + '%s.csv' % (SYM)
+    # CSV 파일 저장
+    sys.stdout = open(CSV_FN, 'w')
+
     print(TITLE.at[SYM, 'Name'])
     print(RESULT_DF)
     RESULT_DF = RESULT_DF.set_index('Date')
@@ -147,12 +157,12 @@ def calcRun(SYM):
         print("Table is not exist, Create Table " + SYM)
         # create_table(CONN, SYM)
 
-SYMBOL_ARRAY = pd.read_sql('select Symbol from KRX', con = CONN)
+SYMBOL_ARRAY = pd.read_sql('select Symbol, Name from KRX union select Symbol, Name from ETF_KR;', con = CONN)
 LIST_SYMBOL = SYMBOL_ARRAY.Symbol.tolist()
 
 if __name__ == '__main__':
     with Pool(7) as p:
-        print(p.map(calcRun, LIST_SYMBOL))
+        p.map(calcRun, LIST_SYMBOL)
 
 CONN.close()
 BT.close()
