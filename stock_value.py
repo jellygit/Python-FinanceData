@@ -149,6 +149,7 @@ def calcValuation(SYM):
     CSV_FIG = PNG_FOLDER + '%s.png' % (SYM)
     FIG = PLOT.get_figure()
     FIG.savefig(CSV_FIG)
+    FIG.close()
 
 def calcRun(SYM):
     if (checkTableExists(CONN, SYM)):
@@ -160,8 +161,9 @@ def calcRun(SYM):
 SYMBOL_ARRAY = pd.read_sql('select Symbol, Name from KRX union select Symbol, Name from ETF_KR;', con = CONN)
 LIST_SYMBOL = SYMBOL_ARRAY.Symbol.tolist()
 
+# 멀티 스레드
 if __name__ == '__main__':
-    with Pool(7) as p:
+    with Pool(4) as p:
         p.map(calcRun, LIST_SYMBOL)
 
 CONN.close()
