@@ -149,7 +149,6 @@ def calcValuation(SYM):
     CSV_FIG = PNG_FOLDER + '%s.png' % (SYM)
     FIG = PLOT.get_figure()
     FIG.savefig(CSV_FIG)
-    FIG.close()
 
 def calcRun(SYM):
     if (checkTableExists(CONN, SYM)):
