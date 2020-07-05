@@ -8,7 +8,10 @@ import matplotlib.ticker as mtick
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import matplotlib.dates as dates
+import multiprocessing 
 from multiprocessing import Pool
+import logging
+from multiprocessing_logging import install_mp_handler
 
 PNG_FOLDER = "png/"
 if not os.path.isdir(PNG_FOLDER):
@@ -22,16 +25,6 @@ if not os.path.isdir(CSV_FOLDER):
 mpl.rc('font', family='NanumGothic')
 # 유니코드에서  음수 부호설정
 mpl.rc('axes', unicode_minus=False)
-
-# 수수료 계산 함수.
-# 수수료는 매수/매도 시, Tax on sale. KOSPI 0.25, KOSDAQ 0.25
-def F_FEE(Get_Date):
-    FEE_STD = dt.datetime(2019, 6, 1, 0, 0, 0)
-    FEE_STD = FEE_STD.__format__("%Y-%m-%d %H:%M:%S")
-    if Get_Date > FEE_STD:
-        return 0.13
-    else:
-        return 0.18
 
 # sqlite 연결 생성
 def create_connection(db_file):
@@ -49,19 +42,6 @@ def create_connection(db_file):
 
     return conn
 
-# 테이블 없는 경우 생성
-def create_table(conn, create_table_sql):
-    """ create a table from the create_table_sql statement
-    :param conn: Connection object
-    :param create_table_sql: a CREATE TABLE statement
-    :return:
-    """
-    try:
-        c = conn.cursor()
-        c.execute(create_table_sql)
-    except Error as e:
-        print(e)
-
 CONN = create_connection('./db/finance.db')
 BT = create_connection('./db/backtest.db')
 
@@ -74,6 +54,29 @@ else:
 SYM = str(SYM)
 # COUNTRY = sys.argv[2]
 """
+
+# 수수료 계산 함수.
+# 수수료는 매수/매도 시, Tax on sale. KOSPI 0.25, KOSDAQ 0.25
+def F_FEE(Get_Date):
+    FEE_STD = dt.datetime(2019, 6, 1, 0, 0, 0)
+    FEE_STD = FEE_STD.__format__("%Y-%m-%d %H:%M:%S")
+    if Get_Date > FEE_STD:
+        return 0.13
+    else:
+        return 0.18
+
+# 테이블 없는 경우 생성
+def create_table(conn, create_table_sql):
+    """ create a table from the create_table_sql statement
+    :param conn: Connection object
+    :param create_table_sql: a CREATE TABLE statement
+    :return:
+    """
+    try:
+        c = conn.cursor()
+        c.execute(create_table_sql)
+    except Error as e:
+        print(e)
 
 # Create Backtest Table.
 # if exist, read latest record.
@@ -109,9 +112,9 @@ def calcValuation(SYM):
     COLS_TMP = ['Date', 'Close', 'STOCK', 'WALLET', 'PRINCIPAL', 'RATE', 'VALUATION']
     RESULT_DF = pd.DataFrame(columns=COLS_TMP)
 
-    for year in range(2010, 2021):
+    for year in range(2011, 2021):
         for month in range(1, 13):
-            for day in range(1, 28):
+            for day in range(1, 10):
                 date = dt.datetime(year, month, day, 0, 0, 0)
                 date = date.__format__("%Y-%m-%d %H:%M:%S")
 
@@ -130,12 +133,14 @@ def calcValuation(SYM):
                         'VALUATION':(VALUATION/1000)},
                         ignore_index=True)
                     break
+                logger.info(SYM + ' ' + date)
         PRINCIPAL = PRINCIPAL + (PRINCIPAL * 0.017 * 0.846)
     TITLE = pd.read_sql('select Symbol, Name from KRX where Symbol like \"' + SYM + '\" union select Symbol, Name from ETF_KR where Symbol like \"' + SYM + '\"', con = CONN, index_col="Symbol")
     CSV_FN = CSV_FOLDER + '%s.csv' % (SYM)
-    # CSV 파일 저장
+    # CSV 파일 저장, 파일 출력방향 지정
     sys.stdout = open(CSV_FN, 'w')
 
+    RESULT_DF = RESULT_DF.drop(['Close', 'STOCK', 'WALLET'], axis=1)
     print(TITLE.at[SYM, 'Name'])
     print(RESULT_DF)
     RESULT_DF = RESULT_DF.set_index('Date')
@@ -149,9 +154,11 @@ def calcValuation(SYM):
     CSV_FIG = PNG_FOLDER + '%s.png' % (SYM)
     FIG = PLOT.get_figure()
     FIG.savefig(CSV_FIG)
+    plt.close('all')
 
 def calcRun(SYM):
     if (checkTableExists(CONN, SYM)):
+        logging.info(SYM)
         calcValuation(SYM)
     else:
         print("Table is not exist, Create Table " + SYM)
@@ -162,8 +169,14 @@ LIST_SYMBOL = SYMBOL_ARRAY.Symbol.tolist()
 
 # 멀티 스레드
 if __name__ == '__main__':
-    with Pool(4) as p:
+    multiprocessing.log_to_stderr()
+    logger = multiprocessing.get_logger()
+    logger.setLevel(logging.DEBUG)
+    logger.info('start')
+    install_mp_handler()
+    with Pool(6) as p:
         p.map(calcRun, LIST_SYMBOL)
+    logger.info('end')
 
 CONN.close()
 BT.close()

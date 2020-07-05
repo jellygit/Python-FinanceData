@@ -1,12 +1,11 @@
 #!/bin/env python
+from logging import log
 import FinanceDataReader as fdr
 import pandas as pd
-# from pandas import Series, DataFrame
 import sqlite3
 
 conn = sqlite3.connect('./db/finance.db')
 
-"""
 # 종목코드 받아오기
 df = fdr.StockListing('KRX')
 df.to_sql('KRX', conn, if_exists='replace')
@@ -25,34 +24,22 @@ df = fdr.EtfListing('KR')
 df.to_sql('ETF_KR', conn, if_exists='replace')
 df = fdr.EtfListing('US')
 df.to_sql('ETF_US', conn, if_exists='replace')
-"""
 
-#  FinanceDataReader가 지원하는 1996년부터 모든 거래 데이터 받아오기
-df = pd.read_sql("select * from KRX", con=conn, index_col='index')
-# df = pd.read_sql("select * from NASDAQ", con=conn, index_col='index')
-# df = pd.read_sql("select * from NYSE", con=conn, index_col='index')
-# df = pd.read_sql("select * from AMEX", con=conn, index_col='index')
-# df = pd.read_sql("select * from SP500", con=conn, index_col='index')
-# df = pd.read_sql("select * from ETF_KR", con=conn, index_col='index')
-# df = pd.read_sql("select * from ETF_US", con=conn, index_col='index')
+# 일일 가격 변동 받아오기
+def get_marketdata(market_name):
+    print(market_name)
+    df = pd.read_sql('select * from \"' + market_name + '\"', con=conn, index_col='index')
+    for Sym in df.Symbol:
+        print (Sym)
+        each_stock = fdr.DataReader(Sym, '2020-01-02', '2020-07-03')
+        print (each_stock)
+        each_stock.to_sql(Sym, conn, if_exists='append')
 
-"""
-for Sym in df.Symbol:
-    each_stock = fdr.DataReader(Sym, '1996-01-01', '2000-12-30', country='KR')
-    each_stock.to_sql(Sym, conn, if_exists='append')
+# markets = [ "KRX", "NASDAQ", "NYSE", "AMEX", "SP500", "ETF_KR", "ETF_US" ]
+markets = [ "KRX", "ETF_KR" ]
 
-for Sym in df.Symbol:
-    each_stock = fdr.DataReader(Sym, '2001-01-01', '2009-12-30', country='KR')
-    each_stock.to_sql(Sym, conn, if_exists='append')
-
-for Sym in df.Symbol:
-    each_stock = fdr.DataReader(Sym, '2010-01-01', '2019-12-30', country='KR')
-    each_stock.to_sql(Sym, conn, if_exists='append')
-
-"""
-for Sym in df.Symbol:
-    each_stock = fdr.DataReader(Sym, '2020-02-05', '2020-03-02')
-    each_stock.to_sql(Sym, conn, if_exists='append')
+for market in markets:
+    get_marketdata(market)
 
 """
 # 모든 종목 테이블 드랍
