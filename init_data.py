@@ -9,13 +9,17 @@ import sys
 import FinanceDataReader as fdr
 import pandas as pd
 import sqlite3
+import argparse
 
+## DB 디렉토리 확인 후 없으면 생성
 DB_FOLDER = "db/"
 if not os.path.isdir(DB_FOLDER):
     os.mkdir(DB_FOLDER)
 
+## sqlite3 DB 연결, 없으면 파일 생성
 conn = sqlite3.connect('./db/finance.db')
 
+<<<<<<< HEAD
 <<<<<<< HEAD
 # 종목코드 받아오기
 df = fdr.StockListing('KRX')
@@ -53,15 +57,22 @@ for market in markets:
     get_marketdata(market)
 
 =======
+=======
+## 인자 확인: 0는 실행파일 명, 1 이후가 인자
+## 비어 있으면 전체 마켓 업데이트
+>>>>>>> eab9008 (init_data.py: 주석 추가, 마켓 입력 버그 수정)
 if len(sys.argv) > 1:
     MARKETS = sys.argv
+    MARKETS.pop(0)
 else:
-    MARKETS = [ "KRX", "ETF/KR", "NASDAQ", "NYSE", "AMEX", "SP500" ]
+    MARKETS = [ "ETF/KR", "KRX", "NASDAQ", "NYSE", "SP500" ]
 
-# 종목코드 받아오기
+## 종목코드 받아오기
+## MARKET 에 대해 종목코드를 받아오고 DB 에 저장 -> 테이블 없으면 생성
 def get_symbol(MARKET):
     df = fdr.StockListing(MARKET)
 
+    ## 한국만 Symbol 이 아니라 Code 인데 호환성을 위해 Rename
     if MARKET in "KRX":
         df.rename(columns = {'Code' : 'Symbol'}, inplace = True)
     
@@ -78,6 +89,8 @@ def createTable(df, MARKET):
     schema = pd.io.sql.get_schema(df, MARKET)
     df.to_sql(schema, conn, if_exists="replace")
 
+## 테이블 존재 유무 확인
+## sqlite3 마스터 테이블에 MARKET 명으로 질의: 존재하면 True / 없으면 False Return
 def checkTableExists(dbcon, tablename):
     dbcur = dbcon.cursor()
     dbcur.execute("""
@@ -86,17 +99,32 @@ def checkTableExists(dbcon, tablename):
         WHERE name = '{0}'
         """.format(tablename.replace('\'', '\'\'')))
     if dbcur.fetchone()[0] == 1:
-        dbcur.close()
+        #dbcur.close()
         return True
 
-    dbcur.close()
+    #dbcur.close()
     return False
 
-MARKETS.pop(0)
+## 가격 업데이트
+## 옵션 -p 추가 시 실행(예정)
+def getPrice(MARKET):
+    """
+    df = pd.read_sql("select * from MARKET", con=conn, index_col='index')
+
+    for Sym in df.Symbol:
+        each_stock = fdr.DataReader(Sym)
+        each_stock.to_sql(Sym, conn, if_exists='append')
+    """
+    print("getPrice")
+    print(MARKET)
+
+## 프로그램 파일명 빼고 난 인자값으로 실행
 for MARKET in MARKETS:
     get_symbol(MARKET)
+    getPrice(MARKET)
 
 """
+<<<<<<< HEAD
 
 # ETF 종목코드 받아오기, 한국과 미국
 # https://github.com/FinanceData/FinanceDataReader/wiki/Release-Note-0.8.0
@@ -118,6 +146,8 @@ for Sym in df.Symbol:
 """
 >>>>>>> e77a3b6 (init_data.py: 각 마켓 심볼 가져오기 기능 개선)
 """
+=======
+>>>>>>> eab9008 (init_data.py: 주석 추가, 마켓 입력 버그 수정)
 # 모든 종목 테이블 드랍
 for Sym in df.Code:
     dropTableStatement = "DROP TABLE \'" + Sym + "\'"
@@ -125,4 +155,5 @@ for Sym in df.Code:
     conn.execute(dropTableStatement)
 """
 
+## DB 연결 종료
 conn.close()
