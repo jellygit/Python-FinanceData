@@ -10,6 +10,12 @@ import FinanceDataReader as fdr
 import pandas as pd
 import sqlite3
 import argparse
+import datetime
+
+## 시간 설정
+now = datetime.datetime.now()
+TODAY = now.strftime('%Y-%m-%d')
+
 
 ## DB 디렉토리 확인 후 없으면 생성
 DB_FOLDER = "db/"
@@ -65,8 +71,11 @@ if len(sys.argv) > 1:
     MARKETS = sys.argv
     MARKETS.pop(0)
 else:
-    MARKETS = [ "ETF/KR", "KRX", "NASDAQ", "NYSE", "SP500" ]
+    MARKETS = [ "ETF/KR", "KRX" ]
+    # MARKETS = [ "ETF/KR", "KRX", "NASDAQ", "NYSE", "SP500" ]
 
+################################################################################
+## 함수 모음
 ## 종목코드 받아오기
 ## MARKET 에 대해 종목코드를 받아오고 DB 에 저장 -> 테이블 없으면 생성
 def get_symbol(MARKET):
@@ -82,12 +91,24 @@ def get_symbol(MARKET):
         createTable(df, MARKET)
         insertTable(df, MARKET)
 
-def insertTable(df, MARKET):
-    df.to_sql(MARKET, conn, if_exists='replace')
+def insertTable(df, DB_TABLE):
+    # df.to_sql(DB_TABLE, conn, if_exists='replace')
+    print("insert Table")
 
-def createTable(df, MARKET):
-    schema = pd.io.sql.get_schema(df, MARKET)
-    df.to_sql(schema, conn, if_exists="replace")
+def createTable(df, DB_TABLE):
+    schema = pd.io.sql.get_schema(df, DB_TABLE)
+    # df.to_sql(schema, conn, if_exists="replace")
+    print("create Table")
+
+## 개별 종목 가격 정보 보유 여부 확인
+## 테이블 존재하는지 체크 - 존재 하면 날짜 체크
+## 날짜 비교 해서 갖고 있는 날짜는 dataframe 에서 drop, 보유하지 않은 날짜만 insert
+def updatePrice(SYMBOL):
+    df = pd.read_sql('select Date from \"' + SYMBOL + '\"', con=conn)
+    each_stock = fdr.DataReader(SYMBOL, df['Date'].iloc[-1], TODAY)
+    print(each_stock)
+
+
 
 ## 테이블 존재 유무 확인
 ## sqlite3 마스터 테이블에 MARKET 명으로 질의: 존재하면 True / 없으면 False Return
@@ -108,15 +129,15 @@ def checkTableExists(dbcon, tablename):
 ## 가격 업데이트
 ## 옵션 -p 추가 시 실행(예정)
 def getPrice(MARKET):
-    """
-    df = pd.read_sql("select * from MARKET", con=conn, index_col='index')
+    print(MARKET)
+    df = pd.read_sql('select * from \"' + MARKET + '\"', con=conn, index_col='index')
 
     for Sym in df.Symbol:
-        each_stock = fdr.DataReader(Sym)
-        each_stock.to_sql(Sym, conn, if_exists='append')
-    """
-    print("getPrice")
-    print(MARKET)
+        updatePrice(Sym)
+        # print (Sym)
+        # print (each_stock)
+        # each_stock.to_sql(Sym, conn, if_exists='append')
+################################################################################
 
 ## 프로그램 파일명 빼고 난 인자값으로 실행
 for MARKET in MARKETS:
