@@ -154,7 +154,11 @@ def calcValuation(SYM):
     CSV_FIG = PNG_FOLDER + '%s.png' % (SYM)
     FIG = PLOT.get_figure()
     FIG.savefig(CSV_FIG)
+<<<<<<< HEAD
     plt.close('all')
+=======
+    # PLOT.close(FIG)
+>>>>>>> e77a3b6 (init_data.py: 각 마켓 심볼 가져오기 기능 개선)
 
 def calcRun(SYM):
     if (checkTableExists(CONN, SYM)):
