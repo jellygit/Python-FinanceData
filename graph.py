@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 import os
 import sys
-import FinanceDataReader as fdr
 import pandas as pd
 import sqlite3
-import argparse
 import datetime as dt
+import matplotlib.ticker as mtick
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+import matplotlib.dates as dates
 
-## 시간 설정
-now = dt.datetime.now()
-TODAY = now.strftime('%Y-%m-%d')
+# 폰트 설정
+mpl.rc('font', family='NanumGothic')
+mpl.rc('axes', unicode_minus=False)
 
 ## DB 디렉토리 확인 후 없으면 생성
 DB_FOLDER = "db/"
@@ -20,13 +22,17 @@ if not os.path.isdir(DB_FOLDER):
 read_conn = sqlite3.connect('./db/finance.db')
 write_conn = sqlite3.connect('./db/backtest.db')
 
+PNG_FOLDER = "png/"
+if not os.path.isdir(PNG_FOLDER):
+    os.mkdir(PNG_FOLDER)
+
 ## 인자 확인: 0는 실행파일 명, 1 이후가 인자
 ## 비어 있으면 전체 마켓 업데이트
 if len(sys.argv) > 1:
     MARKETS = sys.argv
     MARKETS.pop(0)
 else:
-    MARKETS = [ "ETF/KR", "KRX" ]
+    MARKETS = [ "ETF/KR" ]
     # MARKETS = [ "ETF/KR", "KRX", "NASDAQ", "NYSE", "SP500" ]
 
 ################################################################################
@@ -40,23 +46,6 @@ def get_symbol_frm_db(MARKET):
     if checkTableExists(read_conn, MARKET):
         df = pd.read_sql('select Symbol from \"' + MARKET + '\"', con=read_conn)
         return df
-
-def insertTable(df, DB_TABLE):
-    # df.to_sql(DB_TABLE, conn, if_exists='replace')
-    print("insert Table")
-
-def createTable(df, DB_TABLE):
-    schema = pd.io.sql.get_schema(df, DB_TABLE)
-    # df.to_sql(schema, conn, if_exists="replace")
-    print("create Table")
-
-## 개별 종목 가격 정보 보유 여부 확인
-## 테이블 존재하는지 체크 - 존재 하면 날짜 체크
-## 날짜 비교 해서 갖고 있는 날짜는 dataframe 에서 drop, 보유하지 않은 날짜만 insert
-def getMonthly(SYMBOL):
-    df = pd.read_sql('select * from \"' + SYMBOL + '\"', con=conn)
-
-
 
 ## 테이블 존재 유무 확인
 ## sqlite3 마스터 테이블에 tablename 으로 질의: 존재하면 True / 없으면 False Return
@@ -72,34 +61,28 @@ def checkTableExists(dbcon, tablename):
     print(tablename + " not exsit")
     return False
 
-def getMonthlyPrice(Symbol):
+def create_graph(MARKET, Symbol):
     # DB 에서 개별 종목 가격 이력을 받아옴
-    df = pd.read_sql('select * from \"' + Symbol + '\"', con=read_conn, index_col='Date')
-    # START_DATE = df.index[0]
-    # END_DATE   = df.index[-1]
-
-    # index(Date)에서 연도만 가져온 뒤 중복 제거
-    df_tmp = pd.DatetimeIndex(df.index).year
-    years = df_tmp.unique()
-
-    # 중복 제거된 연도를 대상으로 가격 가져오기
-    each_stock = pd.DataFrame()
-    for year in years:
-        for month in range(1, 13):
-            for day in range(1,15):
-                date = dt.datetime(year, month, day, 0, 0, 0)
-                date = date.__format__("%Y-%m-%d %H:%M:%S")
-
-                if date in df.index:
-                    append_df = pd.read_sql('select * from \"' + Symbol + '\" where Date = \"' + date + '\"', con=read_conn, index_col='Date')
-
-                    each_stock = pd.concat([each_stock, append_df])
-                    break
-    if each_stock.empty:
-        print("empty")
+    bt_Sym = "bt_" + Symbol
+    if checkTableExists(write_conn, bt_Sym):
+        RESULT_DF = pd.read_sql('select * from ( select * from "' + bt_Sym + '" order by Date DESC limit 120 ) order by Date ASC', con=write_conn, index_col='Date')
+    
+    
+        #TITLE = pd.read_sql('select Symbol, Name from KRX where Symbol like \"' + Symbol + '\" union select Symbol, Name from ETF_KR where Symbol like \"' + Symbol + '\"', con = CONN, index_col="Symbol")
+        TITLE = pd.read_sql('select Symbol, Name from "' + MARKET + '" where Symbol like \"' + Symbol + '\"', con = read_conn, index_col="Symbol")
+        PLOT = RESULT_DF.plot(secondary_y=['RATE'], mark_right=False)
+        # ax.yaxis.set_major_formatter(mtick.PercentFormatter())
+        PLOT.set_title(Symbol + ' ' + TITLE.at[Symbol, 'Name'])
+        PLOT.right_ax.yaxis.set_major_formatter(mtick.PercentFormatter())
+        PLOT.ticklabel_format(axis='y', style='plain')
+    
+        # 그래프 파일 저장
+        CSV_FIG = PNG_FOLDER + '%s.png' % (Symbol)
+        FIG = PLOT.get_figure()
+        FIG.savefig(CSV_FIG)
+        plt.close()
     else:
-        each_stock.to_sql(Symbol, write_conn, if_exists='replace')
-
+        print("not exist")
 
 ################################################################################
 
@@ -116,7 +99,7 @@ for MARKET in MARKETS:
         for Sym in df_Sym.Symbol:
             # Sym 이 존재하는 테이블인지 체크, 존재하면 가격 업데이트
             if checkTableExists(read_conn, Sym):
-                getMonthlyPrice(Sym)
+                create_graph(MARKET, Sym)
 
 
 ## DB 연결 종료
