@@ -70,12 +70,15 @@ def create_graph(MARKET, Symbol):
     
         #TITLE = pd.read_sql('select Symbol, Name from KRX where Symbol like \"' + Symbol + '\" union select Symbol, Name from ETF_KR where Symbol like \"' + Symbol + '\"', con = CONN, index_col="Symbol")
         TITLE = pd.read_sql('select Symbol, Name from "' + MARKET + '" where Symbol like \"' + Symbol + '\"', con = read_conn, index_col="Symbol")
+        """
         PLOT = RESULT_DF.plot(secondary_y=['RATE'], mark_right=False)
         # ax.yaxis.set_major_formatter(mtick.PercentFormatter())
         PLOT.set_title(Symbol + ' ' + TITLE.at[Symbol, 'Name'])
         PLOT.right_ax.yaxis.set_major_formatter(mtick.PercentFormatter())
         PLOT.ticklabel_format(axis='y', style='plain')
-    
+        """
+        PLOT = RESULT_DF.plot(xlabel='Date', ylabel='KRW', title=(Symbol + ' ' + TITLE.at[Symbol, 'Name']), logy=True, rot=45)
+
         # 그래프 파일 저장
         CSV_FIG = PNG_FOLDER + '%s.png' % (Symbol)
         FIG = PLOT.get_figure()
