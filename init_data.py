@@ -20,7 +20,8 @@ if len(sys.argv) > 1:
     MARKETS = sys.argv
     MARKETS.pop(0)
 else:
-    MARKETS = [ "ETF/KR" ]
+    MARKETS = [ "KRX" ]
+    # MARKETS = [ "ETF/KR" ]
     #MARKETS = [ "ETF/KR", "KRX", "NASDAQ", "NYSE", "SP500" ]
 
 ################################################################################
@@ -37,15 +38,18 @@ def update_symbol(MARKET):
     if checkTableExists(conn, MARKET):
         insertTable(df, MARKET)
     else:
-        createTable(df, MARKET)
         insertTable(df, MARKET)
 
 def insertTable(df, tablename):
-    df.to_sql(tablename, conn, if_exists='replace')
+    if len(df) >= 1:
+        df.to_sql(tablename, conn, if_exists='replace')
 
 def createTable(df, tablename):
     schema = pd.io.sql.get_schema(df, tablename)
-    df.to_sql(schema, conn, if_exists="replace")
+    dbcur = conn.cursor()
+    dbcur.execute(schema)
+
+
 
 ## 테이블 존재 유무 확인
 ## sqlite3 마스터 테이블에 MARKET 명으로 질의: 존재하면 True / 없으면 False Return
@@ -77,25 +81,32 @@ def getPrice(MARKET):
     df = pd.read_sql('select * from \"' + MARKET + '\"', con=conn, index_col='index')
 
     for Sym in df.Symbol:
-        # 종목 일일 가격 정보 테이블 존재 확인,
-        # 없으면 새로 쓰기
-        new_stock = fdr.DataReader(Sym)
-        new_stock.index = pd.to_datetime(new_stock.index)
+        if ' ' not in Sym:
+            calValue(Sym, df)
+        elif '.' not in Sym:
+            calValue(Sym, df)
 
-        # 기존 가격 존재 시 new_stock 에서 새로운 정보만 남김
-        if checkTableExists(conn, Sym):
-            db_stock = pd.read_sql('select * from "'+ Sym +'"', con=conn, index_col='Date')
-            db_stock.index = pd.to_datetime(db_stock.index)
-            from_ts = db_stock.index[0]
-            to_ts= db_stock.index[-1]
-            new_stock = new_stock[(new_stock.index < from_ts) | (new_stock.index > to_ts)]
-        insertTable(new_stock, Sym)
+def calValue(Sym, df):
+    # 종목 일일 가격 정보 테이블 존재 확인,
+    # 없으면 새로 쓰기
+    new_stock = fdr.DataReader(Sym)
+    new_stock.index = pd.to_datetime(new_stock.index)
+
+    # 기존 가격 존재 시 new_stock 에서 새로운 정보만 남김
+    if checkTableExists(conn, Sym):
+        db_stock = pd.read_sql('select * from "'+ Sym +'"', con=conn, index_col='Date')
+        db_stock.index = pd.to_datetime(db_stock.index)
+        from_ts = db_stock.index[0]
+        to_ts= db_stock.index[-1]
+        new_stock = new_stock[(new_stock.index < from_ts) | (new_stock.index > to_ts)]
+    insertTable(new_stock, Sym)
 
 ################################################################################
 
 ## 프로그램 파일명 빼고 난 인자값으로 실행
 for MARKET in MARKETS:
-    update_symbol(MARKET)
+    if MARKET != "ETF/US":
+        update_symbol(MARKET)
     getPrice(MARKET)
 
 """

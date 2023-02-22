@@ -16,6 +16,11 @@ DB_FOLDER = "db/"
 if not os.path.isdir(DB_FOLDER):
     os.mkdir(DB_FOLDER)
 
+## CSV 디렉토리 확인 후 없으면 생성
+CSV_FOLDER = "csv/"
+if not os.path.isdir(CSV_FOLDER):
+    os.mkdir(CSV_FOLDER)
+
 ## sqlite3 DB 연결, 없으면 파일 생성
 read_conn = sqlite3.connect('./db/finance.db')
 write_conn = sqlite3.connect('./db/backtest.db')
@@ -116,6 +121,7 @@ for MARKET in MARKETS:
         for Sym in df_Sym.Symbol:
             # Sym 이 존재하는 테이블인지 체크, 존재하면 가격 업데이트
             if checkTableExists(read_conn, Sym):
+                print(Sym)
                 getMonthlyPrice(Sym)
 
 

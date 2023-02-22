@@ -77,7 +77,7 @@ def create_graph(MARKET, Symbol):
         PLOT.right_ax.yaxis.set_major_formatter(mtick.PercentFormatter())
         PLOT.ticklabel_format(axis='y', style='plain')
         """
-        PLOT = RESULT_DF.plot(xlabel='Date', ylabel='KRW', title=(Symbol + ' ' + TITLE.at[Symbol, 'Name']), logy=True, rot=45)
+        PLOT = RESULT_DF.plot(xlabel='Date', ylabel='KRW', title=(Symbol + ' ' + TITLE.at[Symbol, 'Name']), logy=True, rot=45, grid=True)
 
         # 그래프 파일 저장
         CSV_FIG = PNG_FOLDER + '%s.png' % (Symbol)

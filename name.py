@@ -13,8 +13,8 @@ if len(sys.argv) > 1:
     MARKETS = sys.argv
     MARKETS.pop(0)
 else:
-    MARKETS = [ "KRX", "ETF/KR" ]
-    # MARKETS = [ "ETF/KR", "KRX", "NASDAQ", "NYSE", "SP500" ]
+    # MARKETS = [ "KRX", "ETF/KR" ]
+    MARKETS = [ "ETF/KR", "KRX", "NASDAQ", "NYSE", "ETF/US", "AMEX" ]
 
 
 def create_connection(db_file):

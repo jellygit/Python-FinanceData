@@ -5,10 +5,17 @@ import pandas as pd
 import sqlite3
 import datetime as dt
 
+pd.set_option('display.max_rows', None)
+
 ## DB 디렉토리 확인 후 없으면 생성
 DB_FOLDER = "db/"
 if not os.path.isdir(DB_FOLDER):
     os.mkdir(DB_FOLDER)
+
+## CSV 디렉토리 확인 후 없으면 생성
+CSV_FOLDER = "csv/"
+if not os.path.isdir(CSV_FOLDER):
+    os.mkdir(CSV_FOLDER)
 
 ## sqlite3 DB 연결, 없으면 파일 생성
 read_conn = sqlite3.connect('./db/finance.db')
@@ -20,8 +27,12 @@ if len(sys.argv) > 1:
     MARKETS = sys.argv
     MARKETS.pop(0)
 else:
-    MARKETS = [ "KRX" ]
+    MARKETS = [ "KRX", "ETF/KR" ]
     # MARKETS = [ "ETF/KR", "KRX", "NASDAQ", "NYSE", "SP500" ]
+
+# 매월 투입금
+BUDGET = 500000
+USA = [ "NASDAQ", "NYSE", "SP500", "ETF/US", "AMEX" ]
 
 ################################################################################
 ## 함수 모음
@@ -64,10 +75,7 @@ def create_bt(Symbol):
 
     if checkTableExists(write_conn, Symbol):
         df = pd.read_sql('select * from ( select * from "' + Symbol + '" order by Date DESC limit 120 ) order by Date ASC', con=write_conn, index_col='Date')
-    
-    
-        # 매월 투입금
-        BUDGET = 500000
+
         # 거스름돈
         WALLET = 0
         # 보유주식 수
@@ -86,7 +94,8 @@ def create_bt(Symbol):
             PRINCIPAL += BUDGET
             VALUATION = df.at[date, 'Close'] * STOCK + WALLET
             FEE = VALUATION * F_FEE(date)
-            VALUATION = int((VALUATION - FEE))
+            VALUATION = round((VALUATION - FEE), 2)
+            #VALUATION = int((VALUATION - FEE))
             RATE = round(((VALUATION / PRINCIPAL) - 1), 2)
             date = date.replace(' 00:00:00', '')
     
@@ -101,6 +110,15 @@ def create_bt(Symbol):
         
         bt_Sym = "bt_" + Symbol
         RES_DF.to_sql(bt_Sym, write_conn, if_exists='replace')
+        
+        CSV_FN = CSV_FOLDER + '%s.csv' % (Symbol)
+        # CSV  파일 출력방향 지정
+        sys.stdout = open(CSV_FN, 'w')
+        # CSV 파일로 저장
+        print(RES_DF)
+        # 출력방향 원복
+        sys.stdout = sys.__stdout__
+
     else:
         print("not exist")
 
@@ -113,6 +131,12 @@ for MARKET in MARKETS:
     # df_Sym 에 아무 값이 없으므로 다음 MARKET 실행
     print(MARKET)
     df_Sym = get_symbol_frm_db(MARKET)
+    print(df_Sym)
+
+    if MARKET in USA:
+        BUDGET = 500
+    else:
+        BUDGET = 500000
 
     # MARKET 심볼 목록을 하나씩 table 유무 확인
     # 존재 시 매월 초 가격 리턴
