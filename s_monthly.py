@@ -6,6 +6,7 @@ import pandas as pd
 import sqlite3
 import argparse
 import datetime as dt
+import asyncio
 
 ## 시간 설정
 now = dt.datetime.now()
@@ -77,7 +78,7 @@ def checkTableExists(dbcon, tablename):
     print(tablename + " not exsit")
     return False
 
-def getMonthlyPrice(Symbol):
+async def getMonthlyPrice(Symbol, block=False):
     # DB 에서 개별 종목 가격 이력을 받아옴
     df = pd.read_sql('select * from \"' + Symbol + '\"', con=read_conn, index_col='Date')
     # START_DATE = df.index[0]
@@ -105,6 +106,15 @@ def getMonthlyPrice(Symbol):
     else:
         each_stock.to_sql(Symbol, write_conn, if_exists='replace')
 
+async def main(df_Sym):
+    # MARKET 심볼 목록을 하나씩 table 유무 확인
+    # 존재 시 매월 초 가격 리턴
+    # 없으면 다음 종목
+    if df_Sym is not None:
+        tasks = [asyncio.create_task(getMonthlyPrice(Sym))
+                 for Sym in df_Sym.Symbol]
+        await asyncio.gather(*tasks)
+
 
 ################################################################################
 
@@ -114,16 +124,7 @@ for MARKET in MARKETS:
     # df_Sym 에 아무 값이 없으므로 다음 MARKET 실행
     df_Sym = get_symbol_frm_db(MARKET)
 
-    # MARKET 심볼 목록을 하나씩 table 유무 확인
-    # 존재 시 매월 초 가격 리턴
-    # 없으면 다음 종목
-    if df_Sym is not None:
-        for Sym in df_Sym.Symbol:
-            # Sym 이 존재하는 테이블인지 체크, 존재하면 가격 업데이트
-            if checkTableExists(read_conn, Sym):
-                print(Sym)
-                getMonthlyPrice(Sym)
-
+    asyncio.run(main(df_Sym))
 
 ## DB 연결 종료
 read_conn.close()
