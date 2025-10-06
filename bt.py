@@ -4,6 +4,7 @@ import sys
 import pandas as pd
 import sqlite3
 import datetime as dt
+import asyncio
 
 pd.set_option('display.max_rows', None)
 
@@ -69,7 +70,7 @@ def checkTableExists(dbcon, tablename):
     print(tablename + " not exsit")
     return False
 
-def create_bt(Symbol):
+async def create_bt(Symbol, block=False):
     # DB 에서 개별 종목 가격 이력을 받아옴
     # df = pd.read_sql('select * from \"' + Symbol + '\"', con=write_conn, index_col='Date')
 
@@ -103,7 +104,7 @@ def create_bt(Symbol):
                 'PRINCIPAL':PRINCIPAL,
                 'RATE':(RATE*100),
                 'STOCK':STOCK,
-                'VALUATION':VALUATION}, index = [date] )
+                'VALUATION':"%.2f"%VALUATION}, index = [date] )
             RES_DF = pd.concat([RES_DF, TEMP_DF])
         RES_DF.index.name = 'Date'
         print(RES_DF)
@@ -122,6 +123,15 @@ def create_bt(Symbol):
     else:
         print("not exist")
 
+async def main(MARKET, df_Sym):
+    # MARKET 심볼 목록을 하나씩 table 유무 확인
+    # 존재 시 매월 초 가격 리턴
+    # 없으면 다음 종목
+    if df_Sym is not None:
+        tasks = [asyncio.create_task(create_bt(Sym))
+                 for Sym in df_Sym.Symbol]
+        await asyncio.gather(*tasks)
+
 
 ################################################################################
 
@@ -138,14 +148,8 @@ for MARKET in MARKETS:
     else:
         BUDGET = 500000
 
-    # MARKET 심볼 목록을 하나씩 table 유무 확인
-    # 존재 시 매월 초 가격 리턴
-    # 없으면 다음 종목
-    if df_Sym is not None:
-        for Sym in df_Sym.Symbol:
-            print(Sym)
-            # Sym 이 존재하는 테이블인지 체크, 존재하면 가격 업데이트
-            create_bt(Sym)
+    asyncio.run(main(MARKET, df_Sym))
+
 
 
 ## DB 연결 종료
