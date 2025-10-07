@@ -1,8 +1,34 @@
 # config.py
 
 # 거래 비용 정의
-BUY_COMMISSION_RATE = 0.0025  # 매수 시 수수료 0.25%
-SELL_TAX_RATE = 0.0025  # 매도 시 세금/비용 0.25%
+BUY_COMMISSION_RATE = 0.0025
+SELL_TAX_RATE = 0.0025
+
+# [추가] 주요 티커별 종목명
+TICKER_NAMES = {
+    "SPY": "SPDR S&P 500 ETF Trust",
+    "QQQ": "Invesco QQQ Trust",
+    "IEF": "iShares 7-10 Year Treasury Bond ETF",
+    "BIL": "SPDR Bloomberg 1-3 Month T-Bill ETF",
+    "IWD": "iShares Russell 1000 Value ETF",
+    "GLD": "SPDR Gold Shares",
+    "SHY": "iShares 1-3 Year Treasury Bond ETF",
+    "IWM": "iShares Russell 2000 ETF",
+    "VGK": "Vanguard FTSE Europe ETF",
+    "EWJ": "iShares MSCI Japan ETF",
+    "VWO": "Vanguard FTSE Emerging Markets ETF",
+    "VNQ": "Vanguard Real Estate ETF",
+    "GSG": "iShares S&P GSCI Commodity-Indexed Trust",
+    "TLT": "iShares 20+ Year Treasury Bond ETF",
+    "HYG": "iShares iBoxx $ High Yield Corporate Bond ETF",
+    "LQD": "iShares iBoxx $ Investment Grade Corporate Bond ETF",
+    "AGG": "iShares Core U.S. Aggregate Bond ETF",
+    "EEM": "iShares MSCI Emerging Markets ETF",
+    "EFA": "iShares MSCI EAFE ETF",
+    "QLD": "ProShares Ultra QQQ",
+    "BND": "Vanguard Total Bond Market ETF",
+    # 필요한 티커가 있다면 여기에 추가: 'TICKER': 'FULL NAME'
+}
 
 # 전략별 자산 목록 정의
 STRATEGY_ASSETS = {
