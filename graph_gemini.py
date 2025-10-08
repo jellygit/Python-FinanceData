@@ -22,7 +22,7 @@ from typing import Tuple, Dict
 
 # --- 설정 ---
 INPUT_CSV = "stock_monthly_summary_with_roi.csv"
-DB_FILE = "db/finance.db"
+DB_FILE = "stock_price.db"
 OUTPUT_DIR = "charts"
 FONT_PATH = "./fonts/goorm-sans-code.ttf"
 fm.fontManager.addfont(FONT_PATH)

@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-FinanceDataReader를 사용하여 주식 시세 데이터를 가져와 SQLite DB에 저장합니다.
-이 스크립트는 에러 처리, PEP 8/257/484 준수 및 멀티-스레딩을 통한 성능 개선이
-적용되었습니다.
+FinanceDataReader를 사용하여 다수 시장의 종목 정보 및 주가 데이터를
+SQLite DB에 저장합니다. (종목 정보 테이블 분리 저장)
 """
 
 import os
@@ -12,170 +11,171 @@ import pandas as pd
 import FinanceDataReader as fdr
 from datetime import datetime, timedelta
 from typing import List, Optional, Tuple
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
+from tqdm import tqdm
 
 # --- 상수 정의 ---
-DB_FILE: str = "db/finance.db"
-MARKET: str = "NYSE"
-# MARKET: str = "KRX"
-# MARKET: str = "NASDAQ"
-START_DATE: str = "2008-01-01"
-# 동시 요청할 스레드 수 (네트워크 및 PC 환경에 따라 조절)
-MAX_WORKERS: int = 1
+DB_FILE: str = "stock_price.db"
+# MARKETS: List[str] = ["NASDAQ", "NYSE"]
+# MARKETS: List[str] = ["ETF/KR"]
+MARKETS: List[str] = ["ETF/US"]
+# MARKETS: List[str] = ["KRX"]
+DEFAULT_START_DATE: str = "2008-01-01"
+MAX_WORKERS: int = 3
+REQUEST_TIMEOUT: int = 3
 
 
 def setup_database(db_path: str) -> None:
-    """
-    SQLite 데이터베이스와 필요한 테이블을 초기화합니다.
-    테이블이 이미 존재하면 생성하지 않습니다.
-
-    Args:
-        db_path (str): 데이터베이스 파일 경로.
-    """
+    """주가 데이터를 저장할 통합 테이블을 초기화합니다."""
     with sqlite3.connect(db_path) as conn:
         cursor = conn.cursor()
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS stock_price (
-            Symbol TEXT,
-            Date TEXT,
-            Open REAL,
-            High REAL,
-            Low REAL,
-            Close REAL,
-            Volume INTEGER,
-            Change REAL,
-            PRIMARY KEY (Symbol, Date)
+            Symbol TEXT, Date TEXT, Open REAL, High REAL, Low REAL, Close REAL,
+            Volume INTEGER, Change REAL, PRIMARY KEY (Symbol, Date)
         )
         """)
         conn.commit()
 
 
-def fetch_stock_data(
-    symbol: str, start_date: str
-) -> Optional[Tuple[str, pd.DataFrame]]:
+def save_market_info_to_db(db_path: str, market_name: str, df: pd.DataFrame) -> None:
     """
-    지정된 단일 종목의 시세 데이터를 가져옵니다.
-
-    네트워크 오류나 데이터 없음(404) 등의 예외 발생 시,
-    에러를 출력하고 None을 반환하여 전체 프로세스가 중단되지 않도록 합니다.
-
-    Args:
-        symbol (str): 조회할 종목 코드.
-        start_date (str): 조회 시작일 (YYYY-MM-DD 형식).
-
-    Returns:
-        Optional[Tuple[str, pd.DataFrame]]:
-            성공 시 (종목 코드, 데이터프레임) 튜플을 반환하고,
-            실패 시 None을 반환합니다.
-    """
-    try:
-        df = fdr.DataReader(symbol, start_date)
-        # df = fdr.DataReader(f"YAHOO:{symbol}", start_date)
-        # df = fdr.DataReader(f"NAVER:{symbol}", start_date)
-        if df.empty:
-            print(f"[{symbol}] 데이터가 비어있습니다. 건너뜁니다.")
-            return None
-        return symbol, df
-    except Exception as e:
-        # HTTPError 404 외에도 다양한 네트워크 예외를 처리
-        print(f"Error fetching [{symbol}]: {e}")
-        return None
-
-
-def save_to_db(db_path: str, symbol: str, df: pd.DataFrame) -> None:
-    """
-    데이터프레임을 SQLite 데이터베이스에 저장합니다.
-
-    Args:
-        db_path (str): 데이터베이스 파일 경로.
-        symbol (str): 저장할 종목 코드.
-        df (pd.DataFrame): 저장할 시세 데이터프레임.
+    지정된 시장의 종목 목록 전체를 해당 시장 이름의 테이블에 저장합니다.
+    테이블이 이미 존재하면 내용을 모두 지우고 새로 덮어씁니다.
     """
     with sqlite3.connect(db_path) as conn:
-        # Date 컬럼을 인덱스에서 일반 컬럼으로 변경
-        df_to_save = df.reset_index()
-        df_to_save["Symbol"] = symbol
+        # 테이블 이름에 특수문자가 있을 경우를 대비해 큰따옴표로 감싸줌
+        safe_market_name = f'"{market_name}"'
+        df.to_sql(safe_market_name, conn, if_exists="replace", index=True)
+    print(f"[{market_name}] 시장의 종목 정보 {len(df)}개를 DB에 저장했습니다.")
 
-        # DB 테이블 컬럼 순서에 맞게 DataFrame 컬럼 재정렬
+
+def get_last_date(db_path: str, symbol: str) -> Optional[str]:
+    """DB에서 특정 종목의 가장 마지막 날짜를 조회합니다."""
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT MAX(Date) FROM stock_price WHERE Symbol = ?", (symbol,))
+        result = cursor.fetchone()
+        return result[0] if result and result[0] else None
+
+
+def fetch_stock_data(
+    symbol: str, start_date: str, market: str
+) -> Optional[Tuple[str, pd.DataFrame]]:
+    """단일 종목의 시세 데이터를 가져옵니다."""
+
+    if market == "KRX":
+        df = fdr.DataReader(f"NAVER:{symbol}", start=start_date)
+    elif market == "ETF/KR":
+        df = fdr.DataReader(f"NAVER:{symbol}", start=start_date)
+    else:
+        df = fdr.DataReader(symbol, start=start_date)
+
+    if df.empty:
+        return None
+    return symbol, df
+
+
+def save_price_to_db(db_path: str, symbol: str, df: pd.DataFrame) -> None:
+    """주가 데이터를 'stock_price' 테이블에 저장합니다 (INSERT OR REPLACE 사용)."""
+    with sqlite3.connect(db_path) as conn:
+        df_to_save = df.reset_index()
+        if "index" in df_to_save.columns:
+            df_to_save.rename(columns={"index": "Date"}, inplace=True)
+        df_to_save["Symbol"] = symbol
+        if "Change" not in df_to_save.columns:
+            df_to_save["Change"] = df_to_save["Close"].pct_change()
         cols = ["Symbol", "Date", "Open", "High", "Low", "Close", "Volume", "Change"]
         df_to_save = df_to_save[cols]
+        df_to_save["Date"] = pd.to_datetime(df_to_save["Date"]).dt.strftime("%Y-%m-%d")
+        df_to_save.fillna(0, inplace=True)
 
-        # 날짜 형식을 'YYYY-MM-DD' 문자열로 변환
-        df_to_save["Date"] = df_to_save["Date"].dt.strftime("%Y-%m-%d")
-
-        # 중복 데이터를 방지하며 삽입 (INSERT OR REPLACE)
-        df_to_save.to_sql(
-            "stock_price",
-            conn,
-            if_exists="append",
-            index=False,
-            method="multi",
-            chunksize=1000,
+        cursor = conn.cursor()
+        data_tuples = [tuple(x) for x in df_to_save.to_numpy()]
+        cursor.executemany(
+            f"""
+            INSERT OR REPLACE INTO stock_price ({", ".join(cols)}) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+            data_tuples,
         )
+        conn.commit()
 
 
-def process_market_data(market: str, start_date: str, db_path: str) -> None:
-    """
-    지정된 시장의 모든 종목 데이터를 병렬로 가져와 DB에 저장합니다.
+def process_single_symbol(symbol: str, db_path: str, market: str):
+    """단일 종목에 대한 증분 업데이트를 처리하는 워커 함수."""
+    last_date_str = get_last_date(db_path, symbol)
+    start_date = (
+        (datetime.strptime(last_date_str, "%Y-%m-%d") + timedelta(days=1)).strftime(
+            "%Y-%m-%d"
+        )
+        if last_date_str
+        else DEFAULT_START_DATE
+    )
+    if start_date >= datetime.now().strftime("%Y-%m-%d"):
+        return
+    result = fetch_stock_data(symbol, start_date, market)
+    if result:
+        _, df = result
+        save_price_to_db(db_path, symbol, df)
 
-    ThreadPoolExecutor를 사용하여 다수의 종목 데이터를 동시에 요청하여
-    전체 작업 시간을 단축합니다.
 
-    Args:
-        market (str): 조회할 시장 (예: 'KRX', 'ETF/KR').
-        start_date (str): 조회 시작일.
-        db_path (str): 데이터베이스 파일 경로.
-    """
-    print(f"'{market}' 시장의 모든 종목 시세를 가져옵니다...")
-    symbols: pd.DataFrame = fdr.StockListing(market)
+def process_market_data(market: str, db_path: str) -> None:
+    """지정된 시장의 모든 종목 데이터를 병렬로 가져와 DB에 저장합니다."""
+    print(f"\n[{market}] 시장 정보 및 시세 수집을 시작합니다...")
+    symbols_df: pd.DataFrame = fdr.StockListing(market)
 
-    ## 한국만 Symbol 이 아니라 Code 인데 호환성을 위해 Rename
-    if MARKET in "KRX":
-        symbols.rename(columns={"Code": "Symbol"}, inplace=True)
+    if market in "KRX":
+        symbols_df.rename(columns={"Code": "Symbol"}, inplace=True)
 
-    if symbols.empty:
+    if symbols_df.empty:
         print(f"'{market}' 시장에서 종목 목록을 가져올 수 없습니다.")
         return
 
-    symbol_list: List[str] = symbols["Symbol"].tolist()
-    total_symbols = len(symbol_list)
-    completed_count = 0
+    # ⭐ 1단계: 시장의 전체 종목 정보를 별도 테이블에 저장
+    save_market_info_to_db(db_path, market, symbols_df)
 
-    # 멀티-스레드 풀을 사용하여 데이터 병렬 조회
+    # 2단계: 각 종목의 주가 데이터를 병렬로 수집
+    symbol_list: List[str] = (
+        symbols_df.index.tolist()
+        if "Symbol" not in symbols_df.columns
+        else symbols_df["Symbol"].tolist()
+    )
+
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        # 각 종목에 대한 데이터 조회 작업을 제출
-        future_to_symbol = {
-            executor.submit(fetch_stock_data, symbol, start_date): symbol
+        futures = {
+            executor.submit(process_single_symbol, symbol, db_path, market): symbol
             for symbol in symbol_list
         }
-
-        for future in as_completed(future_to_symbol):
-            result = future.result()
-            completed_count += 1
-
-            if result:
-                symbol, df = result
-                print(
-                    f"({completed_count}/{total_symbols}) [{symbol}] 데이터 가져오기 성공. DB에 저장합니다."
+        for future in tqdm(
+            as_completed(futures),
+            total=len(symbol_list),
+            desc=f"Processing Prices in {market}",
+        ):
+            symbol = futures[future]
+            try:
+                future.result(timeout=REQUEST_TIMEOUT)
+            except TimeoutError:
+                tqdm.write(
+                    f"오류: 종목 '{symbol}' 데이터 요청 시간 초과({REQUEST_TIMEOUT}초). 건너뜁니다."
                 )
-                save_to_db(db_path, symbol, df)
-            else:
-                # fetch_stock_data에서 에러가 발생하여 None이 반환된 경우
-                failed_symbol = future_to_symbol[future]
-                print(
-                    f"({completed_count}/{total_symbols}) [{failed_symbol}] 데이터 가져오기 실패."
+            except Exception as e:
+                tqdm.write(
+                    f"오류: 종목 '{symbol}' 처리 중 문제 발생 - {type(e).__name__}: {e}"
                 )
 
-    print("\n모든 작업이 완료되었습니다.")
+    print(f"[{market}] 시장 시세 데이터 수집 완료.")
+
+
+def main():
+    """메인 실행 함수"""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    db_path = os.path.join(script_dir, DB_FILE)
+    setup_database(db_path)
+    for market in MARKETS:
+        process_market_data(market, db_path)
+    print("\n모든 시장에 대한 데이터 수집 작업이 완료되었습니다.")
 
 
 if __name__ == "__main__":
-    # 스크립트 실행 위치를 기준으로 DB 파일 경로 설정
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    db_path = os.path.join(script_dir, DB_FILE)
-
-    # 1. 데이터베이스 설정
-    setup_database(db_path)
-
-    # 2. 지정된 마켓의 데이터 처리 시작
-    process_market_data(MARKET, START_DATE, db_path)
+    main()
