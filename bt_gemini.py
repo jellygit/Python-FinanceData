@@ -19,7 +19,8 @@ from tqdm import tqdm
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 # --- 백테스트 설정 ---
-DB_FILE: str = "db/finance.db"
+DB_FILE: str = "stock_price.db"
+# DB_FILE: str = "db/finance.db"
 # 투자 기간 (년)
 YEARS_TO_TEST: int = 10
 # 월별 투자 금액 (종목당)
@@ -207,7 +208,10 @@ def process_single_symbol(symbol: str) -> Optional[pd.DataFrame]:
 def main():
     """메인 실행 함수"""
     # 백테스트를 원하는 시장을 직접 지정
-    target_markets = ["KRX", "NASDAQ", "ETF/KR"]
+    target_markets = ["ETF/US"]
+    # target_markets = ["KRX", "ETF/KR", "NYSE", "NASDAQ"]
+    # target_markets = ["ETF/KR", "KRX"]
+    # target_markets = ["NASDAQ", "NYSE", "KRX"]
     print(f"DB에서 {target_markets} 시장의 종목 코드를 가져옵니다...")
     all_symbols = get_all_symbols(DB_FILE, *target_markets)
 

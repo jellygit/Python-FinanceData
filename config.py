@@ -1,10 +1,6 @@
 # config.py
-
-# 거래 비용 정의
 BUY_COMMISSION_RATE = 0.0025
 SELL_TAX_RATE = 0.0025
-
-# [추가] 주요 티커별 종목명
 TICKER_NAMES = {
     "SPY": "SPDR S&P 500 ETF Trust",
     "QQQ": "Invesco QQQ Trust",
@@ -27,10 +23,7 @@ TICKER_NAMES = {
     "EFA": "iShares MSCI EAFE ETF",
     "QLD": "ProShares Ultra QQQ",
     "BND": "Vanguard Total Bond Market ETF",
-    # 필요한 티커가 있다면 여기에 추가: 'TICKER': 'FULL NAME'
 }
-
-# 전략별 자산 목록 정의
 STRATEGY_ASSETS = {
     "haa": {
         "offensive": ["SPY", "QQQ"],
