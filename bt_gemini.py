@@ -208,8 +208,8 @@ def process_single_symbol(symbol: str) -> Optional[pd.DataFrame]:
 def main():
     """메인 실행 함수"""
     # 백테스트를 원하는 시장을 직접 지정
-    target_markets = ["ETF/US"]
-    # target_markets = ["KRX", "ETF/KR", "NYSE", "NASDAQ"]
+    # target_markets = ["ETF/US"]
+    target_markets = ["KRX", "ETF_US", "NYSE", "NASDAQ"]
     # target_markets = ["ETF/KR", "KRX"]
     # target_markets = ["NASDAQ", "NYSE", "KRX"]
     print(f"DB에서 {target_markets} 시장의 종목 코드를 가져옵니다...")
