@@ -1,12 +1,17 @@
 [project]
-name = "finance"
+name = "showmethemony"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = []
-
-[tool.uv.workspace]
-members = [
-    "finance",
+dependencies = [
+    "finance-datareader>=0.9.96",
+    "holidays>=0.82",
+    "matplotlib>=3.10.7",
+    "numpy>=2.3.3",
+    "pandas>=2.3.3",
+    "python-dateutil>=2.9.0.post0",
+    "pytz>=2025.2",
+    "six>=1.17.0",
+    "tqdm>=4.67.1",
 ]
