@@ -1,251 +1,190 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-FinanceDataReader를 사용하여 다수 시장의 종목 정보 및 주가 데이터를
-SQLite DB에 저장합니다. (종목 정보 테이블 분리 저장)
-"""
 
-import os
-import sqlite3
-import pandas as pd
-import FinanceDataReader as fdr
-from datetime import datetime, timedelta
-from typing import List, Optional, Tuple
-from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
-from tqdm import tqdm
+"""
+주식 종목, 시세, 배당 데이터 초기화 스크립트 (yfinance 연동)
+"""
 import argparse
+import sqlite3
 import sys
 import re
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import FinanceDataReader as fdr
+import yfinance as yf
+import pandas as pd
 
-# --- 상수 정의 ---
-DB_FILE: str = "stock_price.db"
-# [수정] DB_PATH 전역 변수 제거 (main 함수에서 동적으로 생성)
-DEFAULT_START_DATE: str = "2008-01-01"
-MAX_WORKERS: int = 3
-REQUEST_TIMEOUT: int = 5
+DB_PATH = "./stock_price.db"
+MAX_WORKERS = 10
 
-
-def setup_database(db_path: str) -> None:
-    """주가 데이터를 저장할 통합 테이블을 초기화합니다."""
-    with sqlite3.connect(db_path) as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS stock_price (
-            Symbol TEXT, Date TEXT, Open REAL, High REAL, Low REAL, Close REAL,
-            Volume INTEGER, Change REAL, PRIMARY KEY (Symbol, Date)
-        )
+def init_db(db_path):
+    """데이터베이스와 테이블 스키마를 생성합니다."""
+    with sqlite3.connect(db_path) as con:
+        cur = con.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS stock_prices (
+                Symbol TEXT, Date TEXT, Open REAL, High REAL, Low REAL, Close REAL,
+                Volume INTEGER, Change REAL, PRIMARY KEY (Symbol, Date)
+            )
         """)
-        conn.commit()
-
+        # [추가] 배당 정보를 저장할 테이블
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS stock_dividends (
+                Symbol TEXT,
+                Date TEXT,
+                Dividend REAL,
+                PRIMARY KEY (Symbol, Date)
+            )
+        """)
+        con.commit()
 
 def sanitize_table_name(name):
     """테이블 이름에 사용할 수 없는 문자를 '_'로 변경합니다."""
-    return re.sub(r"[^A-Za-z0-9_]", "_", name)
+    return re.sub(r'[^A-Za-z0-9_]', '_', name)
 
+def update_symbols(market, db_path):
+    """지정된 거래소의 종목 목록을 받아와 덮어씁니다."""
+    print(f"[{market}] 전체 종목 목록을 업데이트합니다...")
+    try:
+        df = fdr.StockListing(market)
+        if 'Code' in df.columns and 'Symbol' not in df.columns:
+            df.rename(columns={'Code': 'Symbol'}, inplace=True)
+        if 'Market' not in df.columns:
+            df['Market'] = market
+        
+        table_name = sanitize_table_name(market)
+        with sqlite3.connect(db_path) as con:
+            df[['Symbol', 'Name', 'Market']].to_sql(table_name, con, if_exists='replace', index=False)
+            print(f"[{market}] 종목 목록을 '{table_name}' 테이블에 덮어쓰기 완료 ({len(df):,}개 종목).")
+    except Exception as e:
+        print(f"[{market}] 종목 목록 업데이트 중 오류 발생: {e}", file=sys.stderr)
 
-def save_market_info_to_db(db_path: str, market_name: str, df: pd.DataFrame) -> None:
-    """
-    지정된 시장의 종목 목록 전체를 해당 시장 이름의 테이블에 저장합니다.
-    테이블이 이미 존재하면 내용을 모두 지우고 새로 덮어씁니다.
-    """
-    with sqlite3.connect(db_path) as conn:
-        safe_market_name = sanitize_table_name(market_name)
-        # [수정] KRX 종목은 Symbol을 인덱스로 사용하지 않도록 index=False 추가
-        df.to_sql(safe_market_name, conn, if_exists="replace", index=False)
-    print(f"[{market_name}] 시장의 종목 정보 {len(df)}개를 DB에 저장했습니다.")
-
-
-def get_last_date(db_path: str, symbol: str) -> Optional[str]:
-    """DB에서 특정 종목의 가장 마지막 날짜를 조회합니다."""
-    with sqlite3.connect(db_path) as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT MAX(Date) FROM stock_price WHERE Symbol = ?", (symbol,))
-        result = cursor.fetchone()
-        return result[0] if result and result[0] else None
-
-
-def fetch_stock_data(
-    symbol: str, start_date: str
-) -> Optional[Tuple[str, pd.DataFrame]]:
+def fetch_price_data(symbol_info, start_date):
     """단일 종목의 시세 데이터를 가져옵니다."""
-    df = fdr.DataReader(symbol, start=start_date)
-    if df.empty:
-        return None
-    return symbol, df
+    original_symbol = symbol_info['Symbol']
+    query_symbol = original_symbol.replace('.', '-')
+    try:
+        price_df = fdr.DataReader(query_symbol, start_date)
+        if not price_df.empty:
+            price_df['Symbol'] = original_symbol
+            return price_df
+    except Exception:
+        pass
+    return None
 
-
-def save_price_to_db(db_path: str, symbol: str, df: pd.DataFrame) -> None:
-    """주가 데이터를 'stock_price' 테이블에 저장합니다 (INSERT OR REPLACE 사용)."""
-    with sqlite3.connect(db_path) as conn:
-        df_to_save = df.reset_index()
-        if "index" in df_to_save.columns:
-            df_to_save.rename(columns={"index": "Date"}, inplace=True)
-        df_to_save["Symbol"] = symbol
-        if "Change" not in df_to_save.columns:
-            df_to_save["Change"] = df_to_save["Close"].pct_change().fillna(0)
-
-        required_cols = [
-            "Symbol",
-            "Date",
-            "Open",
-            "High",
-            "Low",
-            "Close",
-            "Volume",
-            "Change",
-        ]
-        # 누락된 컬럼이 있다면 0으로 채움
-        for col in required_cols:
-            if col not in df_to_save.columns:
-                df_to_save[col] = 0
-
-        df_to_save = df_to_save[required_cols].copy()
-        df_to_save["Date"] = pd.to_datetime(df_to_save["Date"]).dt.strftime("%Y-%m-%d")
-        df_to_save.fillna(0, inplace=True)
-
-        cursor = conn.cursor()
-        data_tuples = [tuple(x) for x in df_to_save.to_numpy()]
-        cursor.executemany(
-            f"""
-            INSERT OR REPLACE INTO stock_price ({", ".join(required_cols)}) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-            data_tuples,
-        )
-        conn.commit()
-
-
-def process_single_symbol(symbol_info: dict, db_path: str):
-    """단일 종목에 대한 증분 업데이트를 처리하는 워커 함수."""
-    symbol = symbol_info["Symbol"]
-    last_date_str = get_last_date(db_path, symbol)
-    start_date = (
-        (datetime.strptime(last_date_str, "%Y-%m-%d") + timedelta(days=1)).strftime(
-            "%Y-%m-%d"
-        )
-        if last_date_str
-        else DEFAULT_START_DATE
-    )
-    if start_date >= datetime.now().strftime("%Y-%m-%d"):
-        return
-    result = fetch_stock_data(symbol, start_date)
-    if result:
-        _, df = result
-        save_price_to_db(db_path, symbol, df)
-
-
-def update_symbols(market: str, db_path: str) -> None:
-    """지정된 시장의 모든 종목 데이터를 가져와 DB에 저장합니다."""
-    print(f"\n[{market}] 시장 정보 수집을 시작합니다...")
-    symbols_df: pd.DataFrame = fdr.StockListing(market)
-
-    if "Code" in symbols_df.columns and "Symbol" not in symbols_df.columns:
-        symbols_df.rename(columns={"Code": "Symbol"}, inplace=True)
-
-    if symbols_df.empty:
-        print(f"'{market}' 시장에서 종목 목록을 가져올 수 없습니다.")
-        return
-
-    save_market_info_to_db(db_path, market, symbols_df)
-
-
-def update_prices(market: str, db_path: str, start_year: Optional[int] = None) -> None:
-    """지정된 거래소의 종목 시세를 'stock_prices' 테이블에 추가합니다."""
-    print(f"[{market}] 종목별 시세 데이터 업데이트를 시작합니다.")
+def update_prices(market, db_path, start_year):
+    """멀티스레딩으로 종목별 시세 데이터를 업데이트합니다."""
+    print(f"[{market}] 시세 데이터 업데이트 시작 (시작 연도: {start_year})...")
     table_name = sanitize_table_name(market)
-
     try:
         with sqlite3.connect(db_path) as con:
-            symbols_df = pd.read_sql_query(
-                f'SELECT Symbol, Name FROM "{table_name}"', con
-            )
-            symbol_list = symbols_df.to_dict("records")
+            symbols = pd.read_sql_query(f'SELECT Symbol, Name FROM "{table_name}"', con).to_dict('records')
     except Exception as e:
-        print(
-            f"[{market}] '{table_name}' 테이블에서 종목 목록을 불러오는 중 오류 발생: {e}",
-            file=sys.stderr,
-        )
-        return
+         print(f"[{market}] '{table_name}' 테이블에서 종목 목록을 불러오는 중 오류: {e}", file=sys.stderr)
+         return
 
-    global DEFAULT_START_DATE
-    if start_year:
-        DEFAULT_START_DATE = f"{start_year}-01-01"
+    start_date = f"{start_year}-01-01"
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        futures = {executor.submit(fetch_price_data, s, start_date): s for s in symbols}
+        for future in as_completed(futures):
+            price_df = future.result()
+            if price_df is not None:
+                try:
+                    with sqlite3.connect(DB_PATH) as conn_thread:
+                        price_df.reset_index(inplace=True)
+                        if 'Date' not in price_df.columns and 'index' in price_df.columns:
+                            price_df.rename(columns={'index': 'Date'}, inplace=True)
+                        if 'Change' not in price_df.columns:
+                            price_df['Change'] = price_df['Close'].pct_change().fillna(0)
+                        
+                        required_cols = ['Symbol', 'Date', 'Open', 'High', 'Low', 'Close', 'Volume', 'Change']
+                        for col in required_cols:
+                            if col not in price_df.columns: price_df[col] = 0
+                        
+                        price_df = price_df[required_cols].copy()
+                        price_df['Date'] = price_df['Date'].dt.strftime('%Y-%m-%d')
+                        price_df.to_sql('stock_prices', conn_thread, if_exists='append', index=False)
+                except sqlite3.IntegrityError:
+                    continue
+                except Exception as e:
+                    symbol_info = futures[future]
+                    print(f"\n- {symbol_info['Name']}({symbol_info['Symbol']}) DB 저장 실패: {e}", file=sys.stderr)
+    print(f"\n[{market}] 시세 데이터 업데이트 완료.")
+
+def fetch_dividend_data(symbol_info):
+    """[신규] 단일 종목의 배당 데이터를 yfinance로 가져옵니다."""
+    original_symbol = symbol_info['Symbol']
+    query_symbol = original_symbol.replace('.', '-')
+    try:
+        ticker = yf.Ticker(query_symbol)
+        dividends = ticker.dividends
+        if not dividends.empty:
+            df = dividends.reset_index()
+            df.columns = ['Date', 'Dividend']
+            df['Symbol'] = original_symbol
+            return df
+    except Exception:
+        pass
+    return None
+
+def update_dividends(market, db_path):
+    """[신규] 멀티스레딩으로 종목별 배당 데이터를 업데이트합니다."""
+    print(f"[{market}] 배당 데이터 업데이트 시작...")
+    table_name = sanitize_table_name(market)
+    try:
+        with sqlite3.connect(db_path) as con:
+            symbols = pd.read_sql_query(f'SELECT Symbol, Name FROM "{table_name}"', con).to_dict('records')
+    except Exception as e:
+         print(f"[{market}] '{table_name}' 테이블에서 종목 목록을 불러오는 중 오류: {e}", file=sys.stderr)
+         return
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        futures = {
-            executor.submit(process_single_symbol, symbol_info, db_path): symbol_info
-            for symbol_info in symbol_list
-        }
-        for future in tqdm(
-            as_completed(futures),
-            total=len(symbol_list),
-            desc=f"Processing Prices in {market}",
-        ):
-            symbol_info = futures[future]
-            try:
-                future.result(timeout=REQUEST_TIMEOUT)
-            except TimeoutError:
-                tqdm.write(
-                    f"오류: 종목 '{symbol_info['Symbol']}' 데이터 요청 시간 초과({REQUEST_TIMEOUT}초). 건너뜁니다."
-                )
-            except Exception as e:
-                tqdm.write(
-                    f"오류: 종목 '{symbol_info['Symbol']}' 처리 중 문제 발생 - {type(e).__name__}: {e}"
-                )
-
-    print(f"[{market}] 시장 시세 데이터 수집 완료.")
-
+        futures = {executor.submit(fetch_dividend_data, s): s for s in symbols}
+        for future in as_completed(futures):
+            dividend_df = future.result()
+            if dividend_df is not None:
+                try:
+                    with sqlite3.connect(DB_PATH) as conn_thread:
+                        dividend_df['Date'] = dividend_df['Date'].dt.strftime('%Y-%m-%d')
+                        dividend_df[['Symbol', 'Date', 'Dividend']].to_sql('stock_dividends', conn_thread, if_exists='append', index=False)
+                except sqlite3.IntegrityError:
+                    continue
+                except Exception as e:
+                    symbol_info = futures[future]
+                    print(f"\n- {symbol_info['Name']}({symbol_info['Symbol']}) 배당 DB 저장 실패: {e}", file=sys.stderr)
+    print(f"\n[{market}] 배당 데이터 업데이트 완료.")
 
 def main():
     """메인 실행 함수"""
-    parser = argparse.ArgumentParser(
-        description="주식 종목 및 시세 데이터를 초기화하고 업데이트합니다.",
-        formatter_class=argparse.RawTextHelpFormatter,
-    )
-    parser.add_argument(
-        "markets",
-        nargs="+",
-        help="처리할 거래소 목록 (공백으로 구분)\n(예: KRX NASDAQ ETF/US)",
-    )
-    parser.add_argument(
-        "--update-symbols",
-        action="store_true",
-        help="전체 종목 목록을 새로 받아와 거래소별 테이블에 덮어씁니다.",
-    )
-    parser.add_argument(
-        "--update-prices",
-        action="store_true",
-        help="종목별 시세 데이터를 'stock_prices' 테이블에 추가합니다 (중복 제외).",
-    )
-    parser.add_argument(
-        "--start-year",
-        type=int,
-        help=f"시세 데이터를 받아올 시작 연도 (기본값: {DEFAULT_START_DATE.split('-')[0]})",
-    )
+    parser = argparse.ArgumentParser(description="주식 종목, 시세, 배당 데이터를 업데이트합니다.")
+    parser.add_argument("markets", nargs='+', help="처리할 거래소 목록 (예: KRX NASDAQ)")
+    parser.add_argument("--update-symbols", action='store_true', help="종목 목록을 덮어씁니다.")
+    parser.add_argument("--update-prices", action='store_true', help="시세 데이터를 추가합니다.")
+    parser.add_argument("--update-dividends", action='store_true', help="[신규] 배당 데이터를 추가합니다.")
+    parser.add_argument("--start-year", type=int, default=2000, help="시세 데이터를 받아올 시작 연도")
     args = parser.parse_args()
 
-    if not args.update_symbols and not args.update_prices:
+    if not any([args.update_symbols, args.update_prices, args.update_dividends]):
         parser.print_help()
-        sys.exit(
-            "\n오류: --update-symbols 와 --update-prices 중 하나 이상의 작업을 선택해야 합니다."
-        )
-
-    # [수정] 스크립트 위치를 기준으로 정확한 DB 파일 경로 생성
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    db_path = os.path.join(script_dir, DB_FILE)
-    setup_database(db_path)
-
-    for market in args.markets:
-        print(f"\n===== '{market}' 거래소 작업 시작 =====")
-        if args.update_symbols:
-            # [수정] 정확한 db_path 전달
-            update_symbols(market, db_path)
-
-        if args.update_prices:
-            # [수정] 정확한 db_path 전달
-            update_prices(market, db_path, args.start_year)
-        print(f"===== '{market}' 거래소 작업 완료 =====\n")
-
+        sys.exit("\n오류: --update-symbols, --update-prices, --update-dividends 중 하나 이상의 작업을 선택해야 합니다.")
+    
+    init_db(DB_PATH)
+    start_time = time.time()
+    try:
+        for market in args.markets:
+            print(f"\n===== '{market}' 거래소 작업 시작 =====")
+            if args.update_symbols:
+                update_symbols(market, DB_PATH)
+            if args.update_prices:
+                update_prices(market, DB_PATH, args.start_year)
+            if args.update_dividends:
+                update_dividends(market, DB_PATH)
+            print(f"===== '{market}' 거래소 작업 완료 =====\n")
+        end_time = time.time()
+        print(f"총 소요 시간: {end_time - start_time:.2f}초")
+    except KeyboardInterrupt:
+        print("\n\n사용자 요청으로 프로그램을 중단합니다.")
+        sys.exit(0)
 
 if __name__ == "__main__":
     main()
